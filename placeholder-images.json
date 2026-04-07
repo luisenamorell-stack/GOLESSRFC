@@ -1,0 +1,154 @@
+
+"use client";
+
+import React from 'react';
+import { useFirestore, useCollection, useMemoFirebase, useUser } from '@/firebase';
+import { collection, query, orderBy, limit, deleteDoc, doc } from 'firebase/firestore';
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Trophy, History, Calendar, Loader2, ChevronRight, Trash2 } from "lucide-react";
+import { MatchState } from '@/types/match';
+import { useToast } from "@/hooks/use-toast";
+
+const ADMIN_UID = 'KUGGtODNwCYss4UX64TW7bvIwxt2';
+
+interface MatchHistoryProps {
+  onSelectMatch: (match: MatchState) => void;
+}
+
+export function MatchHistory({ onSelectMatch }: MatchHistoryProps) {
+  const db = useFirestore();
+  const { user } = useUser();
+  const { toast } = useToast();
+  
+  const matchesQuery = useMemoFirebase(() => {
+    if (!user) return null;
+    return query(
+      collection(db, 'matches'),
+      orderBy('date', 'desc'),
+      limit(20)
+    );
+  }, [db, user]);
+
+  const { data: matches, loading } = useCollection<any>(matchesQuery);
+
+  const handleDelete = async (e: React.MouseEvent, matchId: string) => {
+    e.stopPropagation(); // Evita que se abra el partido al hacer clic en eliminar
+    
+    if (user?.uid !== ADMIN_UID) {
+      toast({
+        variant: "destructive",
+        title: "Acceso Denegado",
+        description: "Solo el Administrador puede eliminar registros del historial."
+      });
+      return;
+    }
+
+    if (confirm("¿Estás seguro de que deseas eliminar este partido permanentemente del historial?")) {
+      try {
+        await deleteDoc(doc(db, 'matches', matchId));
+        toast({
+          title: "Partido Eliminado",
+          description: "El registro ha sido borrado correctamente."
+        });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "No se pudo eliminar el registro."
+        });
+      }
+    }
+  };
+
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center py-20 gap-4">
+      <Loader2 className="h-10 w-10 text-primary animate-spin" />
+      <p className="text-xs font-black uppercase tracking-widest opacity-40">Consultando archivos...</p>
+    </div>
+  );
+
+  if (!matches || matches.length === 0) return (
+    <div className="text-center py-20 bg-card/20 rounded-[3rem] border-2 border-dashed border-border/20">
+      <History className="h-16 w-16 mx-auto mb-4 opacity-10" />
+      <p className="text-muted-foreground font-bold">No hay partidos guardados todavía.</p>
+    </div>
+  );
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6 pb-20">
+      <div className="grid gap-4">
+        {matches.map((m) => (
+          <Card 
+            key={m.id} 
+            className="group hover:ring-2 hover:ring-primary/40 transition-all cursor-pointer rounded-3xl border-none bg-card/40 backdrop-blur-md overflow-hidden"
+            onClick={() => onSelectMatch({
+              id: m.id,
+              homeTeam: { name: m.homeTeamName, logoUrl: m.homeLogoUrl, players: [] },
+              awayTeam: { name: m.awayTeamName, logoUrl: m.awayLogoUrl, players: [] },
+              homeScore: m.homeScore,
+              awayScore: m.awayScore,
+              events: m.events || [],
+              status: 'finished',
+              durationMinutes: 90
+            })}
+          >
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-primary/10 p-2 rounded-xl">
+                    <Calendar className="h-4 w-4 text-primary" />
+                  </div>
+                  <span className="text-xs font-black opacity-40">
+                    {new Date(m.date).toLocaleDateString('es-HN', { day: '2-digit', month: 'short' })}
+                  </span>
+                </div>
+                
+                <div className="flex-1 flex items-center justify-center gap-8">
+                  <div className="flex flex-col items-center gap-2">
+                    <Avatar className="h-12 w-12 border-2 border-primary/20">
+                      <AvatarImage src={m.homeLogoUrl || undefined} className="object-cover" />
+                      <AvatarFallback>{m.homeTeamName[0]}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-[10px] font-black uppercase max-w-[80px] truncate">{m.homeTeamName}</span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl font-black">{m.homeScore}</span>
+                    <span className="opacity-20">-</span>
+                    <span className="text-3xl font-black">{m.awayScore}</span>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-2">
+                    <Avatar className="h-12 w-12 border-2 border-accent/20">
+                      <AvatarImage src={m.awayLogoUrl || undefined} className="object-cover" />
+                      <AvatarFallback>{m.awayTeamName[0]}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-[10px] font-black uppercase max-w-[80px] truncate">{m.awayTeamName}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <Badge variant="outline" className="h-8 rounded-lg font-black bg-primary/5 text-primary">FINAL</Badge>
+                  {user?.uid === ADMIN_UID && (
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={(e) => handleDelete(e, m.id)}
+                      className="h-10 w-10 text-destructive hover:bg-destructive/10 rounded-xl transition-colors"
+                    >
+                      <Trash2 className="h-5 w-5" />
+                    </Button>
+                  )}
+                  <ChevronRight className="h-5 w-5 opacity-20 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}

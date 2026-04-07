@@ -1,0 +1,91 @@
+
+'use server';
+/**
+ * @fileOverview This file implements a Genkit flow to generate a narrative summary
+ * of a football match based on provided statistics, including goals, assists, corners, and cards.
+ */
+
+import { ai } from '@/ai/genkit';
+import { z } from 'genkit';
+
+const MatchSummaryInputSchema = z.object({
+  team1Name: z.string().describe('The name of the first team.'),
+  team2Name: z.string().describe('The name of the second team.'),
+  team1Score: z.number().describe('The final score of the first team.'),
+  team2Score: z.number().describe('The final score of the second team.'),
+  goalScorers: z.array(
+    z.object({
+      team: z.string().describe('The name of the team.'),
+      player: z.string().describe('The player name.'),
+      timestamp: z.string().describe('When the goal occurred.'),
+    })
+  ).describe('List of goal scorers.'),
+  cards: z.array(
+    z.object({
+      team: z.string().describe('The name of the team.'),
+      player: z.string().describe('The player name.'),
+      type: z.enum(['yellow', 'red']).describe('The card type.'),
+      timestamp: z.string().describe('When it occurred.'),
+    })
+  ).optional().describe('List of cards (yellow and red).'),
+  keyEvents: z.array(
+    z.object({
+      type: z.string().describe('Event type.'),
+      description: z.string().describe('Event description.'),
+      timestamp: z.string().describe('When it occurred.'),
+    })
+  ).describe('Other significant events.'),
+});
+
+export type MatchSummaryInput = z.infer<typeof MatchSummaryInputSchema>;
+
+const MatchSummaryOutputSchema = z.object({
+  summary: z.string().describe('A narrative summary of the match.'),
+});
+
+export type MatchSummaryOutput = z.infer<typeof MatchSummaryOutputSchema>;
+
+export async function generateMatchSummary(
+  input: MatchSummaryInput
+): Promise<MatchSummaryOutput> {
+  return matchSummaryGeneratorFlow(input);
+}
+
+const matchSummaryPrompt = ai.definePrompt({
+  name: 'matchSummaryPrompt',
+  input: { schema: MatchSummaryInputSchema },
+  output: { schema: MatchSummaryOutputSchema },
+  prompt: `You are a professional sports commentator for SRFC HN. Write a compelling, high-energy summary of this match in Spanish.
+  
+  Teams: {{{team1Name}}} vs {{{team2Name}}}
+  Final Score: {{team1Score}} - {{team2Score}}
+  
+  Goal Details:
+  {{#each goalScorers}}
+    - Goal: {{{player}}} ({{{team}}}) at {{{timestamp}}}
+  {{/each}}
+  
+  Cards:
+  {{#each cards}}
+    - {{{type}}} card: {{{player}}} ({{{team}}}) at {{{timestamp}}}
+  {{/each}}
+  
+  Timeline:
+  {{#each keyEvents}}
+    - [{{{timestamp}}}] {{{type}}}: {{{description}}}
+  {{/each}}
+  
+  Mention specific players, highlight goals and their impact, and discuss any red cards as they are crucial game-changing moments. Keep the tone professional and exciting.`,
+});
+
+const matchSummaryGeneratorFlow = ai.defineFlow(
+  {
+    name: 'matchSummaryGeneratorFlow',
+    inputSchema: MatchSummaryInputSchema,
+    outputSchema: MatchSummaryOutputSchema,
+  },
+  async (input) => {
+    const { output } = await matchSummaryPrompt(input);
+    return output!;
+  }
+);
